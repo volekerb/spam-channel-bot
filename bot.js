@@ -9,7 +9,7 @@ const fetch = require('node-fetch');
 // Use environment variables for sensitive information (Railway automatically provides these)
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const mongoUri = process.env.MONGODB_URI || process.env.DATABASE_URL; // Railway provides DATABASE_URL for MongoDB
-const channelId = process.env.TELEGRAM_CHANNEL_ID;
+const groupId = process.env.TELEGRAM_GROUP_ID;
 
 // Validate required environment variables
 if (!token) {
@@ -22,9 +22,8 @@ if (!mongoUri) {
   process.exit(1);
 }
 
-if (!channelId) {
-  console.error('TELEGRAM_CHANNEL_ID environment variable is not set');
-  process.exit(1);
+if (!groupId) {
+  console.warn('TELEGRAM_GROUP_ID environment variable is not set. The bot will work in any group it is added to.');
 }
 
 // Create a bot instance
@@ -172,12 +171,73 @@ async function generateWeeklyStats() {
   return statsMessage;
 }
 
+// Check if the chat is a group or supergroup
+async function isGroup(chatId) {
+  try {
+    const chat = await bot.getChat(chatId);
+    return chat.type === 'group' || chat.type === 'supergroup';
+  } catch (error) {
+    console.error('Error checking chat type:', error);
+    return false;
+  }
+}
+
+// Check if the user is an admin in the group
+async function isAdmin(chatId, userId) {
+  try {
+    const chatMember = await bot.getChatMember(chatId, userId);
+    return ['creator', 'administrator'].includes(chatMember.status);
+  } catch (error) {
+    console.error('Error checking admin status:', error);
+    return false;
+  }
+}
+
 // Start listening for messages
 bot.on('message', async (msg) => {
   try {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const username = msg.from.username || `${msg.from.first_name} ${msg.from.last_name || ''}`.trim();
+    
+    // Only process messages from groups or the specified group ID
+    const isValidGroup = await isGroup(chatId);
+    if (!isValidGroup) {
+      return; // Not a group, ignore the message
+    }
+    
+    // If a specific group ID is set, only process messages from that group
+    if (groupId && chatId.toString() !== groupId.toString()) {
+      return; // Not the specified group, ignore the message
+    }
+    
+    // Check for commands
+    if (msg.text && msg.text.startsWith('/')) {
+      const command = msg.text.split(' ')[0].substring(1);
+      
+      // Handle stats command - only admins can request stats
+      if (command === 'stats') {
+        const userIsAdmin = await isAdmin(chatId, userId);
+        if (userIsAdmin) {
+          const statsMessage = await generateWeeklyStats();
+          await bot.sendMessage(chatId, statsMessage, { parse_mode: 'Markdown' });
+        } else {
+          await bot.sendMessage(chatId, 'Only group administrators can request statistics.', { reply_to_message_id: msg.message_id });
+        }
+        return;
+      }
+      
+      // Handle help command
+      if (command === 'help') {
+        const helpMessage = `*Duplicate Detector Bot*\n\n`+
+                          `This bot detects duplicate media in the group and tracks user statistics.\n\n`+
+                          `*Commands:*\n`+
+                          `/stats - Get group statistics (admin only)\n`+
+                          `/help - Show this help message`;
+        await bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
+        return;
+      }
+    }
     
     // Handle media messages (images, videos, gifs)
     if (msg.photo || msg.video || msg.document) {
@@ -235,8 +295,8 @@ bot.on('message', async (msg) => {
           await updateUserStatistics(userId, username, mediaType);
         }
       }
-    } else if (msg.text) {
-      // Handle text messages
+    } else if (msg.text && !msg.text.startsWith('/')) {
+      // Handle regular text messages (not commands)
       await updateUserStatistics(userId, username, 'text');
     }
   } catch (error) {
@@ -249,10 +309,32 @@ cron.schedule('0 12 * * 0', async () => {
   try {
     const statsMessage = await generateWeeklyStats();
     
-    // Post to the channel using the channelId from environment variables
-    await bot.sendMessage(channelId, statsMessage, { parse_mode: 'Markdown' });
+    // Get all unique chat IDs from the database where messages were processed
+    const db = client.db(dbName);
+    const uniqueChats = await db.collection('media').distinct('chatId');
     
-    console.log('Weekly statistics posted successfully');
+    // If a specific group ID is set, only post to that group
+    if (groupId) {
+      await bot.sendMessage(groupId, statsMessage, { parse_mode: 'Markdown' });
+      console.log(`Weekly statistics posted to group: ${groupId}`);
+    } 
+    // Otherwise, post to all groups where the bot has been active
+    else if (uniqueChats.length > 0) {
+      for (const chatId of uniqueChats) {
+        try {
+          // Check if the chat is a group or supergroup
+          const chat = await bot.getChat(chatId);
+          if (chat.type === 'group' || chat.type === 'supergroup') {
+            await bot.sendMessage(chatId, statsMessage, { parse_mode: 'Markdown' });
+            console.log(`Weekly statistics posted to group: ${chatId}`);
+          }
+        } catch (err) {
+          console.error(`Failed to post statistics to chat ${chatId}:`, err.message);
+        }
+      }
+    }
+    
+    console.log('Weekly statistics posting completed');
   } catch (error) {
     console.error('Error posting weekly statistics:', error);
   }
@@ -261,7 +343,11 @@ cron.schedule('0 12 * * 0', async () => {
 // Start the bot
 connectToDatabase().then(() => {
   console.log('Bot is running...');
-  console.log(`Weekly statistics will be posted to channel: ${channelId}`);
+  if (groupId) {
+    console.log(`Bot is configured for group: ${groupId}`);
+  } else {
+    console.log('Bot will work in any group it is added to');
+  }
 }).catch(error => {
   console.error('Failed to start the bot:', error);
 });
