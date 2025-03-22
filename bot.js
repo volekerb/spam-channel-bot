@@ -200,30 +200,30 @@ bot.on('message', async (msg) => {
     const userId = msg.from.id;
     const username = msg.from.username || `${msg.from.first_name} ${msg.from.last_name || ''}`.trim();
     
-    // Only process messages from groups or the specified group ID
+    // Only process messages from groups
     const isValidGroup = await isGroup(chatId);
     if (!isValidGroup) {
-      return; // Not a group, ignore the message
+      // If it's a private chat, still allow commands but not media processing
+      if (msg.text && msg.text.startsWith('/')) {
+        // Process commands in private chats
+      } else {
+        return; // Not a command in a private chat, ignore
+      }
     }
     
-    // If a specific group ID is set, only process messages from that group
-    if (groupId && chatId.toString() !== groupId.toString()) {
-      return; // Not the specified group, ignore the message
+    // If a specific group ID is set, use it for logging but don't restrict functionality
+    if (groupId) {
+      console.log(`Processing message in chat ${chatId}, configured group is ${groupId}`);
     }
     
     // Check for commands
     if (msg.text && msg.text.startsWith('/')) {
       const command = msg.text.split(' ')[0].substring(1);
       
-      // Handle stats command - only admins can request stats
+      // Handle stats command - allow anyone to use it
       if (command === 'stats') {
-        const userIsAdmin = await isAdmin(chatId, userId);
-        if (userIsAdmin) {
-          const statsMessage = await generateWeeklyStats();
-          await bot.sendMessage(chatId, statsMessage, { parse_mode: 'Markdown' });
-        } else {
-          await bot.sendMessage(chatId, 'Only group administrators can request statistics.', { reply_to_message_id: msg.message_id });
-        }
+        const statsMessage = await generateWeeklyStats();
+        await bot.sendMessage(chatId, statsMessage, { parse_mode: 'Markdown' });
         return;
       }
       
@@ -232,7 +232,7 @@ bot.on('message', async (msg) => {
         const helpMessage = `*Duplicate Detector Bot*\n\n`+
                           `This bot detects duplicate media in the group and tracks user statistics.\n\n`+
                           `*Commands:*\n`+
-                          `/stats - Get group statistics (admin only)\n`+
+                          `/stats - Get group statistics\n`+
                           `/help - Show this help message`;
         await bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
         return;
@@ -313,13 +313,10 @@ cron.schedule('0 12 * * 0', async () => {
     const db = client.db(dbName);
     const uniqueChats = await db.collection('media').distinct('chatId');
     
-    // If a specific group ID is set, only post to that group
-    if (groupId) {
-      await bot.sendMessage(groupId, statsMessage, { parse_mode: 'Markdown' });
-      console.log(`Weekly statistics posted to group: ${groupId}`);
-    } 
-    // Otherwise, post to all groups where the bot has been active
-    else if (uniqueChats.length > 0) {
+    // Post to all groups where the bot has been active
+    if (uniqueChats.length > 0) {
+      console.log(`Found ${uniqueChats.length} chats to post statistics to`);
+      
       for (const chatId of uniqueChats) {
         try {
           // Check if the chat is a group or supergroup
@@ -331,6 +328,18 @@ cron.schedule('0 12 * * 0', async () => {
         } catch (err) {
           console.error(`Failed to post statistics to chat ${chatId}:`, err.message);
         }
+      }
+    } else {
+      console.log('No active chats found to post statistics to');
+    }
+    
+    // If a specific group ID is set and it's not in the unique chats, post there too
+    if (groupId && !uniqueChats.includes(parseInt(groupId)) && !uniqueChats.includes(groupId)) {
+      try {
+        await bot.sendMessage(groupId, statsMessage, { parse_mode: 'Markdown' });
+        console.log(`Weekly statistics posted to configured group: ${groupId}`);
+      } catch (err) {
+        console.error(`Failed to post statistics to configured group ${groupId}:`, err.message);
       }
     }
     
