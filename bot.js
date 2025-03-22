@@ -5,6 +5,8 @@ const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
+const sharp = require('sharp');
+const imageHash = require('image-hash');
 
 // Use environment variables for sensitive information (Railway automatically provides these)
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -39,12 +41,115 @@ if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir, { recursive: true });
 }
 
-// Function to hash media files
-const hashMedia = (media) => {
-  const hash = crypto.createHash('sha256');
-  hash.update(media);
-  return hash.digest('hex');
+// Function to hash media files using perceptual hashing
+const hashMedia = (media, mediaType) => {
+  return new Promise((resolve, reject) => {
+    // Use traditional crypto hash as fallback
+    const cryptoHash = () => {
+      const hash = crypto.createHash('sha256');
+      hash.update(media);
+      return hash.digest('hex');
+    };
+    
+    // For images, use perceptual hashing
+    if (mediaType === 'photo' || mediaType === 'document') {
+      try {
+        // Use image-hash for perceptual hashing
+        imageHash.imageHash(media, 16, true, (error, hash) => {
+          if (error) {
+            console.error('Error generating perceptual hash:', error);
+            resolve(cryptoHash()); // Fallback to crypto hash
+          } else {
+            resolve(hash);
+          }
+        });
+      } catch (error) {
+        console.error('Error in perceptual hashing:', error);
+        resolve(cryptoHash()); // Fallback to crypto hash
+      }
+    } else {
+      // For videos and other media types, use crypto hash for now
+      resolve(cryptoHash());
+    }
+  });
 };
+
+// Helper function to escape Markdown characters
+function escapeMarkdown(text) {
+  if (!text) return '';
+  return text.toString()
+    .replace(/_/g, '\\_')
+    .replace(/\*/g, '\\*')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/~/g, '\\~')
+    .replace(/`/g, '\\`')
+    .replace(/>/g, '\\>')
+    .replace(/#/g, '\\#')
+    .replace(/\+/g, '\\+')
+    .replace(/=/g, '\\=')
+    .replace(/\|/g, '\\|')
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
+    .replace(/\./g, '\\.')
+    .replace(/!/g, '\\!')
+    .replace(/-/g, '\\-');
+}
+
+// Format username as a mention if possible
+function formatUserMention(user) {
+  if (user.username && !user.username.includes(' ')) {
+    return `@${user.username}`;
+  } else {
+    return user.username || user.userId;
+  }
+}
+
+// Calculate Hamming distance between two perceptual hashes
+function calculateHashDistance(hash1, hash2) {
+  if (!hash1 || !hash2 || hash1.length !== hash2.length) {
+    return Infinity; // Return a large number if hashes can't be compared
+  }
+  
+  let distance = 0;
+  for (let i = 0; i < hash1.length; i++) {
+    if (hash1[i] !== hash2[i]) {
+      distance++;
+    }
+  }
+  return distance;
+}
+
+// Find similar media using perceptual hash
+async function findSimilarMedia(hash, mediaType, similarityThreshold = 5) {
+  const db = client.db(dbName);
+  
+  // For traditional crypto hashes, we need an exact match
+  if (mediaType !== 'photo' && mediaType !== 'document') {
+    return await db.collection('media').findOne({ hash });
+  }
+  
+  // For perceptual hashes, we allow some difference
+  const allMedia = await db.collection('media')
+    .find({ mediaType: { $in: ['photo', 'document'] } })
+    .toArray();
+  
+  // Find the most similar media within threshold
+  let mostSimilar = null;
+  let lowestDistance = similarityThreshold + 1;
+  
+  for (const media of allMedia) {
+    const distance = calculateHashDistance(hash, media.hash);
+    if (distance <= similarityThreshold && distance < lowestDistance) {
+      mostSimilar = media;
+      lowestDistance = distance;
+    }
+  }
+  
+  return mostSimilar;
+}
 
 // Connect to MongoDB
 async function connectToDatabase() {
@@ -223,7 +328,7 @@ bot.on('message', async (msg) => {
       // Handle stats command - allow anyone to use it
       if (command === 'stats') {
         const statsMessage = await generateWeeklyStats();
-        await bot.sendMessage(chatId, statsMessage, { parse_mode: 'Markdown' });
+        await bot.sendMessage(chatId, statsMessage, { parse_mode: 'HTML' });
         return;
       }
       
@@ -263,18 +368,27 @@ bot.on('message', async (msg) => {
         // Download the file
         const response = await fetch(fileUrl);
         const mediaBuffer = Buffer.from(await response.arrayBuffer());
-        const mediaHash = hashMedia(mediaBuffer);
         
-        // Check for duplicates in the database
+        // Generate perceptual hash for the media
+        const mediaHash = await hashMedia(mediaBuffer, mediaType);
+        
+        // Check for similar media in the database using perceptual hash
         const db = client.db(dbName);
-        const existingMedia = await db.collection('media').findOne({ hash: mediaHash });
+        const existingMedia = await findSimilarMedia(mediaHash, mediaType);
         
         if (existingMedia) {
           // Duplicate found
+          let posterMention;
+          if (existingMedia.username && !existingMedia.username.includes(' ')) {
+            posterMention = `@${existingMedia.username}`;
+          } else {
+            posterMention = existingMedia.username || existingMedia.userId;
+          }
+          const postDate = new Date(existingMedia.timestamp).toLocaleDateString();
           await bot.sendMessage(
             chatId, 
-            `⚠️ *Duplicate Content Detected* ⚠️\n\nThis ${mediaType} has already been posted by ${existingMedia.username || existingMedia.userId} on ${new Date(existingMedia.timestamp).toLocaleDateString()}.`,
-            { parse_mode: 'Markdown', reply_to_message_id: msg.message_id }
+            `⚠️ <b>Duplicate Content Detected</b> ⚠️\n\nThis ${mediaType} has already been posted by ${posterMention} on ${postDate}.`,
+            { parse_mode: 'HTML', reply_to_message_id: msg.message_id }
           );
           
           // Track this duplicate
@@ -307,8 +421,6 @@ bot.on('message', async (msg) => {
 // Schedule weekly statistics post (Sunday at 12:00 PM)
 cron.schedule('0 12 * * 0', async () => {
   try {
-    const statsMessage = await generateWeeklyStats();
-    
     // Get all unique chat IDs from the database where messages were processed
     const db = client.db(dbName);
     const uniqueChats = await db.collection('media').distinct('chatId');
@@ -322,7 +434,9 @@ cron.schedule('0 12 * * 0', async () => {
           // Check if the chat is a group or supergroup
           const chat = await bot.getChat(chatId);
           if (chat.type === 'group' || chat.type === 'supergroup') {
-            await bot.sendMessage(chatId, statsMessage, { parse_mode: 'Markdown' });
+            // Generate stats specific to this chat for proper mentions
+            const statsMessage = await generateWeeklyStats(chatId);
+            await bot.sendMessage(chatId, statsMessage, { parse_mode: 'HTML' });
             console.log(`Weekly statistics posted to group: ${chatId}`);
           }
         } catch (err) {
@@ -336,7 +450,8 @@ cron.schedule('0 12 * * 0', async () => {
     // If a specific group ID is set and it's not in the unique chats, post there too
     if (groupId && !uniqueChats.includes(parseInt(groupId)) && !uniqueChats.includes(groupId)) {
       try {
-        await bot.sendMessage(groupId, statsMessage, { parse_mode: 'Markdown' });
+        const statsMessage = await generateWeeklyStats(groupId);
+        await bot.sendMessage(groupId, statsMessage, { parse_mode: 'HTML' });
         console.log(`Weekly statistics posted to configured group: ${groupId}`);
       } catch (err) {
         console.error(`Failed to post statistics to configured group ${groupId}:`, err.message);
