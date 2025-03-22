@@ -54,8 +54,21 @@ const hashMedia = (media, mediaType) => {
     // For images, use perceptual hashing
     if (mediaType === 'photo' || mediaType === 'document') {
       try {
-        // Use image-hash for perceptual hashing
-        imageHash.imageHash(media, 16, true, (error, hash) => {
+        // Save buffer to a temporary file since image-hash requires a file path
+        const tempFilePath = path.join(downloadsDir, `temp_${Date.now()}.jpg`);
+        
+        // Write the buffer to a temporary file
+        fs.writeFileSync(tempFilePath, media);
+        
+        // Use image-hash with the file path
+        imageHash.imageHash(tempFilePath, 16, true, (error, hash) => {
+          // Clean up the temporary file
+          try {
+            fs.unlinkSync(tempFilePath);
+          } catch (cleanupError) {
+            console.error('Error cleaning up temp file:', cleanupError);
+          }
+          
           if (error) {
             console.error('Error generating perceptual hash:', error);
             resolve(cryptoHash()); // Fallback to crypto hash
