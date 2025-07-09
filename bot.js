@@ -7,6 +7,8 @@ const path = require('path');
 const fetch = require('node-fetch');
 const sharp = require('sharp');
 const imageHash = require('image-hash');
+const express = require('express');
+const bodyParser = require('body-parser');
 
 // Use environment variables for sensitive information (Railway automatically provides these)
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -29,11 +31,53 @@ if (!groupId) {
 }
 
 // Create a bot instance
-const bot = new TelegramBot(token, { polling: true });
+// Use webhook in production, polling in development
+const useWebhook = process.env.NODE_ENV === 'production' || process.env.USE_WEBHOOK === 'true';
+const webhookUrl = process.env.WEBHOOK_URL; // Your Railway app URL + /webhook
+
+let bot;
+if (useWebhook && webhookUrl) {
+  bot = new TelegramBot(token, { webHook: true });
+  console.log('Bot initialized in webhook mode');
+} else {
+  bot = new TelegramBot(token, { polling: true });
+  console.log('Bot initialized in polling mode');
+}
 
 // MongoDB client
 const client = new MongoClient(mongoUri);
 const dbName = 'duplicate_detector';
+
+// Express app for webhook
+const app = express();
+const port = process.env.PORT || 3000;
+
+// Middleware
+app.use(bodyParser.json());
+
+// Webhook endpoint
+if (useWebhook && webhookUrl) {
+  // Set webhook
+  bot.setWebHook(`${webhookUrl}/webhook`);
+  
+  // Webhook route
+  app.post('/webhook', (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  });
+  
+  console.log(`Webhook set to: ${webhookUrl}/webhook`);
+}
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Start Express server
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
 
 // Create downloads directory if it doesn't exist
 const downloadsDir = path.join(__dirname, 'downloads');
@@ -235,7 +279,7 @@ async function trackDuplicate(userId, username) {
   );
   
   // Add entry to duplicate tracking
-  await db.collection('duplicateTracking').insertOne({
+  await db.collection('duplicates').insertOne({
     userId,
     username,
     timestamp: new Date()
@@ -245,25 +289,106 @@ async function trackDuplicate(userId, username) {
 // Generate weekly statistics
 async function generateWeeklyStats() {
   const db = client.db(dbName);
-  const stats = await db.collection('userStats').find().toArray();
+  
+  // Calculate date range for the past week
+  const now = new Date();
+  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   
   let statsMessage = '📊 *Weekly Channel Statistics* 📊\n\n';
   
-  // Sort users by total messages
-  stats.sort((a, b) => b.totalMessages - a.totalMessages);
+  // Get weekly media posts
+  const weeklyMedia = await db.collection('media').find({
+    timestamp: { $gte: oneWeekAgo }
+  }).toArray();
+  
+  // Get weekly user statistics
+  const userWeeklyStats = {};
+  const userReactionStats = {};
+  
+  for (const media of weeklyMedia) {
+    const userId = media.userId;
+    const username = media.username || userId;
+    
+    if (!userWeeklyStats[userId]) {
+      userWeeklyStats[userId] = {
+        userId,
+        username,
+        photoCount: 0,
+        videoCount: 0,
+        documentCount: 0,
+        totalMessages: 0
+      };
+    }
+    
+    userWeeklyStats[userId][`${media.mediaType}Count`]++;
+    userWeeklyStats[userId].totalMessages++;
+    
+    // Get reaction count for this media post
+    const reactionCount = await getMessageReactions(media.chatId, media.originalMessageId);
+    
+    // Track reactions for "Петушок недели"
+    if (reactionCount > 0) {
+      if (!userReactionStats[userId]) {
+        userReactionStats[userId] = {
+          userId,
+          username,
+          totalReactions: 0
+        };
+      }
+      userReactionStats[userId].totalReactions += reactionCount;
+    }
+  }
+  
+  // Get weekly text messages (non-media)
+  const weeklyTextMessages = await db.collection('textMessages').find({
+    timestamp: { $gte: oneWeekAgo }
+  }).toArray();
+  
+  for (const textMsg of weeklyTextMessages) {
+    const userId = textMsg.userId;
+    const username = textMsg.username || userId;
+    
+    if (!userWeeklyStats[userId]) {
+      userWeeklyStats[userId] = {
+        userId,
+        username,
+        photoCount: 0,
+        videoCount: 0,
+        documentCount: 0,
+        textCount: 0,
+        totalMessages: 0
+      };
+    }
+    
+    userWeeklyStats[userId].textCount = (userWeeklyStats[userId].textCount || 0) + 1;
+    userWeeklyStats[userId].totalMessages++;
+  }
+  
+  const weeklyStatsArray = Object.values(userWeeklyStats);
+  
+  // Sort users by total messages for top contributors
+  weeklyStatsArray.sort((a, b) => b.totalMessages - a.totalMessages);
   
   // Top contributors
   statsMessage += '*Top Contributors:*\n';
-  for (let i = 0; i < Math.min(5, stats.length); i++) {
-    const user = stats[i];
-    statsMessage += `${i+1}. ${user.username || user.userId}: ${user.totalMessages} messages\n`;
+  for (let i = 0; i < Math.min(5, weeklyStatsArray.length); i++) {
+    const user = weeklyStatsArray[i];
+    statsMessage += `${i+1}. ${escapeMarkdown(user.username)}: ${user.totalMessages} messages\n`;
+  }
+  
+  // Петушок недели (Top reactor)
+  const reactionStatsArray = Object.values(userReactionStats);
+  if (reactionStatsArray.length > 0) {
+    reactionStatsArray.sort((a, b) => b.totalReactions - a.totalReactions);
+    const topReactor = reactionStatsArray[0];
+    statsMessage += `\n🐓 *Петушок недели:*\n${escapeMarkdown(topReactor.username)} с ${topReactor.totalReactions} реакциями\n`;
   }
   
   // Media breakdown
-  const totalPhotos = stats.reduce((sum, user) => sum + (user.photoCount || 0), 0);
-  const totalVideos = stats.reduce((sum, user) => sum + (user.videoCount || 0), 0);
-  const totalDocs = stats.reduce((sum, user) => sum + (user.documentCount || 0), 0);
-  const totalTexts = stats.reduce((sum, user) => sum + (user.textCount || 0), 0);
+  const totalPhotos = weeklyStatsArray.reduce((sum, user) => sum + (user.photoCount || 0), 0);
+  const totalVideos = weeklyStatsArray.reduce((sum, user) => sum + (user.videoCount || 0), 0);
+  const totalDocs = weeklyStatsArray.reduce((sum, user) => sum + (user.documentCount || 0), 0);
+  const totalTexts = weeklyStatsArray.reduce((sum, user) => sum + (user.textCount || 0), 0);
   
   statsMessage += '\n*Media Breakdown:*\n';
   statsMessage += `📷 Photos: ${totalPhotos}\n`;
@@ -271,16 +396,35 @@ async function generateWeeklyStats() {
   statsMessage += `📁 Documents: ${totalDocs}\n`;
   statsMessage += `💬 Text Messages: ${totalTexts}\n`;
   
-  // Duplicate offenders
-  statsMessage += '\n*Duplicate Offenders:*\n';
-  const duplicateOffenders = stats
-    .filter(user => user.duplicatesPosted > 0)
-    .sort((a, b) => b.duplicatesPosted - a.duplicatesPosted);
+  // Weekly duplicate offenders
+  const weeklyDuplicates = await db.collection('duplicates').find({
+    timestamp: { $gte: oneWeekAgo }
+  }).toArray();
   
+  const duplicateStats = {};
+  for (const duplicate of weeklyDuplicates) {
+    const userId = duplicate.userId;
+    const username = duplicate.username || userId;
+    
+    if (!duplicateStats[userId]) {
+      duplicateStats[userId] = {
+        userId,
+        username,
+        count: 0
+      };
+    }
+    duplicateStats[userId].count++;
+  }
+  
+  const duplicateOffenders = Object.values(duplicateStats)
+    .filter(user => user.count > 0)
+    .sort((a, b) => b.count - a.count);
+  
+  statsMessage += '\n*Duplicate Offenders:*\n';
   if (duplicateOffenders.length > 0) {
     for (let i = 0; i < Math.min(3, duplicateOffenders.length); i++) {
       const user = duplicateOffenders[i];
-      statsMessage += `${i+1}. ${user.username || user.userId}: ${user.duplicatesPosted} duplicates\n`;
+      statsMessage += `${i+1}. ${escapeMarkdown(user.username)}: ${user.count} duplicates\n`;
     }
   } else {
     statsMessage += 'No duplicates posted this week! 🎉\n';
@@ -425,9 +569,112 @@ bot.on('message', async (msg) => {
     } else if (msg.text && !msg.text.startsWith('/')) {
       // Handle regular text messages (not commands)
       await updateUserStatistics(userId, username, 'text');
+      
+      // Store text message for weekly tracking
+      await db.collection('textMessages').insertOne({
+        userId,
+        username,
+        messageId: msg.message_id,
+        timestamp: new Date(),
+        chatId
+      });
     }
   } catch (error) {
     console.error('Error processing message:', error);
+  }
+});
+
+// Function to get stored reaction count for a message
+async function getMessageReactions(chatId, messageId) {
+  try {
+    const db = client.db(dbName);
+    const reactionData = await db.collection('messageReactions').findOne({
+      chatId: chatId.toString(),
+      messageId: messageId.toString()
+    });
+    
+    return reactionData ? reactionData.totalReactions : 0;
+  } catch (error) {
+    console.error('Error getting message reactions:', error);
+    return 0;
+  }
+}
+
+// Function to update reaction count in database
+async function updateMessageReactions(chatId, messageId, reactions) {
+  try {
+    const db = client.db(dbName);
+    await db.collection('messageReactions').updateOne(
+      {
+        chatId: chatId.toString(),
+        messageId: messageId.toString()
+      },
+      {
+        $set: {
+          totalReactions: reactions.length,
+          reactions: reactions,
+          lastUpdated: new Date()
+        }
+      },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error updating message reactions:', error);
+  }
+}
+
+// Handle message reaction updates
+bot.on('message_reaction', async (update) => {
+  try {
+    console.log('Reaction update received:', JSON.stringify(update, null, 2));
+    
+    const chatId = update.chat.id;
+    const messageId = update.message_id;
+    const newReaction = update.new_reaction || [];
+    
+    // Update reaction count in database
+    await updateMessageReactions(chatId, messageId, newReaction);
+    
+    console.log(`Updated reactions for message ${messageId} in chat ${chatId}: ${newReaction.length} reactions`);
+    
+  } catch (error) {
+    console.error('Error processing reaction update:', error);
+  }
+});
+
+// Handle message reaction count updates (alternative event)
+bot.on('message_reaction_count', async (update) => {
+  try {
+    console.log('Reaction count update received:', JSON.stringify(update, null, 2));
+    
+    const chatId = update.chat.id;
+    const messageId = update.message_id;
+    const reactions = update.reactions || [];
+    
+    // Calculate total reaction count
+    const totalReactions = reactions.reduce((sum, reaction) => sum + reaction.total_count, 0);
+    
+    // Update in database
+    const db = client.db(dbName);
+    await db.collection('messageReactions').updateOne(
+      {
+        chatId: chatId.toString(),
+        messageId: messageId.toString()
+      },
+      {
+        $set: {
+          totalReactions,
+          reactions,
+          lastUpdated: new Date()
+        }
+      },
+      { upsert: true }
+    );
+    
+    console.log(`Updated reaction count for message ${messageId}: ${totalReactions} total reactions`);
+    
+  } catch (error) {
+    console.error('Error processing reaction count update:', error);
   }
 });
 
