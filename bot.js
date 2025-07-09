@@ -61,12 +61,6 @@ if (useWebhook && webhookUrl) {
   bot.setWebHook(`${webhookUrl}/webhook`)
     .then(() => {
       console.log(`✅ Webhook successfully set to: ${webhookUrl}/webhook`);
-      
-      // Get webhook info to verify
-      return bot.getWebHookInfo();
-    })
-    .then((info) => {
-      console.log('📝 Webhook info:', JSON.stringify(info, null, 2));
     })
     .catch((error) => {
       console.error('❌ Error setting webhook:', error);
@@ -74,22 +68,10 @@ if (useWebhook && webhookUrl) {
   
   // Webhook route
   app.post('/webhook', (req, res) => {
-    console.log('📥 Webhook request received:', {
-      timestamp: new Date().toISOString(),
-      headers: {
-        'content-type': req.headers['content-type'],
-        'user-agent': req.headers['user-agent'],
-        'x-telegram-bot-api-secret-token': req.headers['x-telegram-bot-api-secret-token']
-      },
-      bodySize: JSON.stringify(req.body).length,
-      body: req.body
-    });
-    
     try {
       bot.processUpdate(req.body);
-      console.log('✅ Update processed successfully');
     } catch (error) {
-      console.error('❌ Error processing update:', error);
+      console.error('❌ Error processing webhook update:', error);
     }
     
     res.sendStatus(200);
