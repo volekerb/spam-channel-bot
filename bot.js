@@ -498,6 +498,7 @@ bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const username = msg.from.username || `${msg.from.first_name} ${msg.from.last_name || ''}`.trim();
+    const db = client.db(dbName);
     
     // Only process messages from groups
     const isValidGroup = await isGroup(chatId);
@@ -567,7 +568,6 @@ bot.on('message', async (msg) => {
         const mediaHash = await hashMedia(mediaBuffer, mediaType);
         
         // Check for similar media in the database using perceptual hash
-        const db = client.db(dbName);
         const existingMedia = await findSimilarMedia(mediaHash, mediaType);
         
         if (existingMedia) {
