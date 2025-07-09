@@ -392,7 +392,8 @@ async function generateWeeklyStats() {
   statsMessage += '*Top Contributors:*\n';
   for (let i = 0; i < Math.min(5, weeklyStatsArray.length); i++) {
     const user = weeklyStatsArray[i];
-    statsMessage += `${i+1}. ${escapeMarkdown(user.username)}: ${user.totalMessages} messages\n`;
+    const displayName = user.username && !user.username.includes(' ') ? `@${user.username}` : user.username;
+    statsMessage += `${i+1}. ${escapeMarkdown(displayName)}: ${user.totalMessages} messages\n`;
   }
   
   // Петушок недели (Top reactor)
@@ -400,7 +401,8 @@ async function generateWeeklyStats() {
   if (reactionStatsArray.length > 0) {
     reactionStatsArray.sort((a, b) => b.totalReactions - a.totalReactions);
     const topReactor = reactionStatsArray[0];
-    statsMessage += `\n🐓 *Петушок недели:*\n${escapeMarkdown(topReactor.username)} с ${topReactor.totalReactions} реакциями\n`;
+    const displayName = topReactor.username && !topReactor.username.includes(' ') ? `@${topReactor.username}` : topReactor.username;
+    statsMessage += `\n🐓 *Петушок недели:*\n${escapeMarkdown(displayName)} с ${topReactor.totalReactions} реакциями\n`;
   }
   
   // Media breakdown
@@ -443,7 +445,8 @@ async function generateWeeklyStats() {
   if (duplicateOffenders.length > 0) {
     for (let i = 0; i < Math.min(3, duplicateOffenders.length); i++) {
       const user = duplicateOffenders[i];
-      statsMessage += `${i+1}. ${escapeMarkdown(user.username)}: ${user.count} duplicates\n`;
+      const displayName = user.username && !user.username.includes(' ') ? `@${user.username}` : user.username;
+      statsMessage += `${i+1}. ${escapeMarkdown(displayName)}: ${user.count} duplicates\n`;
     }
   } else {
     statsMessage += 'No duplicates posted this week! 🎉\n';
