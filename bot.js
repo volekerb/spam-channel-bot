@@ -560,11 +560,17 @@ bot.on('message', async (msg) => {
           } else {
             posterMention = existingMedia.username || existingMedia.userId;
           }
-          const postDate = new Date(existingMedia.timestamp).toLocaleDateString();
+          // Format date as dd.mm.yyyy
+          const date = new Date(existingMedia.timestamp);
+          const postDate = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear()}`;
+          
+          // Create link to original message
+          const originalMessageLink = `https://t.me/c/${Math.abs(chatId).toString().slice(3)}/${existingMedia.originalMessageId}`;
+          
           await bot.sendMessage(
             chatId, 
-            `⚠️ <b>Duplicate Content Detected</b> ⚠️\n\nThis ${mediaType} has already been posted by ${posterMention} on ${postDate}.`,
-            { parse_mode: 'HTML', reply_to_message_id: msg.message_id }
+            `⚠️ <b>Duplicate Content Detected</b> ⚠️\n\nThis ${mediaType} has already been posted by ${posterMention} on ${postDate}.\n\n📎 <a href="${originalMessageLink}">View original message</a>`,
+            { parse_mode: 'HTML', reply_to_message_id: msg.message_id, disable_web_page_preview: true }
           );
           
           // Track this duplicate
