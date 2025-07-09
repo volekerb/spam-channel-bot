@@ -455,6 +455,55 @@ async function generateWeeklyStats() {
   return statsMessage;
 }
 
+// Generate Петушок недели stats only
+async function generatePetushokStats() {
+  const db = client.db(dbName);
+  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  
+  // Get weekly media posts
+  const weeklyMedia = await db.collection('media').find({
+    timestamp: { $gte: oneWeekAgo }
+  }).toArray();
+  
+  const userReactionStats = {};
+  
+  // Calculate reaction stats for each user
+  for (const media of weeklyMedia) {
+    const userId = media.userId;
+    const username = media.username || userId;
+    
+    // Get reaction count for this media post
+    const reactionCount = await getMessageReactions(media.chatId, media.originalMessageId);
+    
+    // Track reactions for "Петушок недели"
+    if (reactionCount > 0) {
+      if (!userReactionStats[userId]) {
+        userReactionStats[userId] = {
+          userId,
+          username,
+          totalReactions: 0
+        };
+      }
+      userReactionStats[userId].totalReactions += reactionCount;
+    }
+  }
+  
+  let petushokMessage = '🐓 *Петушок недели* 🐓\n\n';
+  
+  // Find top reactor
+  const reactionStatsArray = Object.values(userReactionStats);
+  if (reactionStatsArray.length > 0) {
+    reactionStatsArray.sort((a, b) => b.totalReactions - a.totalReactions);
+    const topReactor = reactionStatsArray[0];
+    const displayName = topReactor.username && !topReactor.username.includes(' ') ? `@${topReactor.username}` : topReactor.username;
+    petushokMessage += `${escapeMarkdown(displayName)} с ${topReactor.totalReactions} реакциями за неделю! 🎉`;
+  } else {
+    petushokMessage += 'Пока никто не получил реакций на свои посты на этой неделе 😔';
+  }
+  
+  return petushokMessage;
+}
+
 // Check if the chat is a group or supergroup
 async function isGroup(chatId) {
   try {
@@ -512,12 +561,20 @@ bot.on('message', async (msg) => {
         return;
       }
       
+      // Handle petushok command - allow anyone to use it
+      if (command === 'petushok') {
+        const petushokMessage = await generatePetushokStats();
+        await bot.sendMessage(chatId, petushokMessage, { parse_mode: 'HTML' });
+        return;
+      }
+      
       // Handle help command
       if (command === 'help') {
         const helpMessage = `*Duplicate Detector Bot*\n\n`+
                           `This bot detects duplicate media in the group and tracks user statistics.\n\n`+
                           `*Commands:*\n`+
                           `/stats - Get group statistics\n`+
+                          `/petushok - Get Петушок недели (top reactor)\n`+
                           `/help - Show this help message`;
         await bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
         return;
