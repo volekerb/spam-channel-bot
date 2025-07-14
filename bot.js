@@ -58,9 +58,12 @@ app.use(bodyParser.json());
 // Webhook endpoint
 if (useWebhook && webhookUrl) {
   // Set webhook with error handling
-  bot.setWebHook(`${webhookUrl}/webhook`)
+  bot.setWebHook(`${webhookUrl}/webhook`, {
+    allowed_updates: ['message', 'message_reaction', 'message_reaction_count', 'chat_member']
+  })
     .then(() => {
       console.log(`✅ Webhook successfully set to: ${webhookUrl}/webhook`);
+      console.log('✅ Webhook configured to receive reaction updates');
     })
     .catch((error) => {
       console.error('❌ Error setting webhook:', error);
@@ -69,6 +72,14 @@ if (useWebhook && webhookUrl) {
   // Webhook route
   app.post('/webhook', (req, res) => {
     try {
+      const updateType = Object.keys(req.body).find(key => key !== 'update_id');
+      console.log(`🔄 Received update type: ${updateType}`);
+      
+      // Log reaction updates specifically
+      if (updateType === 'message_reaction' || updateType === 'message_reaction_count') {
+        console.log('😍 Reaction update received:', JSON.stringify(req.body, null, 2));
+      }
+      
       bot.processUpdate(req.body);
     } catch (error) {
       console.error('❌ Error processing webhook update:', error);
@@ -560,8 +571,107 @@ bot.on('message', async (msg) => {
                           `*Commands:*\n`+
                           `/stats - Get group statistics\n`+
                           `/petushok - Get Петушок недели (top reactor)\n`+
+                          `/debug_reactions - Check reaction tracking status\n`+
+                          `/webhook_info - Check webhook configuration\n`+
+                          `/group_info - Check group type and bot permissions\n`+
                           `/help - Show this help message`;
         await bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
+        return;
+      }
+      
+      // Debug command to check reaction tracking
+      if (command === 'debug_reactions') {
+        try {
+          const db = client.db(dbName);
+          const reactionCount = await db.collection('messageReactions').countDocuments();
+          const recentReactions = await db.collection('messageReactions')
+            .find({})
+            .sort({ lastUpdated: -1 })
+            .limit(5)
+            .toArray();
+          
+          let debugMessage = `<b>🔍 Reaction Tracking Debug</b>\n\n`;
+          debugMessage += `📊 Total reactions in DB: ${reactionCount}\n\n`;
+          
+          if (recentReactions.length > 0) {
+            debugMessage += `<b>Recent reactions:</b>\n`;
+            recentReactions.forEach((reaction, index) => {
+              debugMessage += `${index + 1}. Chat: ${reaction.chatId}, Message: ${reaction.messageId}, Reactions: ${reaction.totalReactions}\n`;
+            });
+          } else {
+            debugMessage += `❌ No reactions found in database\n`;
+            debugMessage += `This could mean:\n`;
+            debugMessage += `• Webhook not receiving reaction updates\n`;
+            debugMessage += `• Bot not admin with proper permissions\n`;
+            debugMessage += `• Group type doesn't support reactions\n`;
+          }
+          
+          await bot.sendMessage(chatId, debugMessage, { parse_mode: 'HTML' });
+        } catch (error) {
+          await bot.sendMessage(chatId, `❌ Error checking reactions: ${error.message}`);
+        }
+        return;
+      }
+      
+      // Debug command to check webhook info
+      if (command === 'webhook_info') {
+        try {
+          const webhookInfo = await bot.getWebHookInfo();
+          let infoMessage = `<b>🔗 Webhook Information</b>\n\n`;
+          infoMessage += `URL: ${webhookInfo.url || 'Not set'}\n`;
+          infoMessage += `Pending updates: ${webhookInfo.pending_update_count || 0}\n`;
+          infoMessage += `Max connections: ${webhookInfo.max_connections || 'Default'}\n`;
+          infoMessage += `Allowed updates: ${webhookInfo.allowed_updates ? webhookInfo.allowed_updates.join(', ') : 'All'}\n`;
+          
+          if (webhookInfo.last_error_date) {
+            infoMessage += `\n❌ Last error: ${webhookInfo.last_error_message}\n`;
+            infoMessage += `Error date: ${new Date(webhookInfo.last_error_date * 1000).toLocaleString()}\n`;
+          } else {
+            infoMessage += `\n✅ No recent errors\n`;
+          }
+          
+          await bot.sendMessage(chatId, infoMessage, { parse_mode: 'HTML' });
+        } catch (error) {
+          await bot.sendMessage(chatId, `❌ Error getting webhook info: ${error.message}`);
+        }
+        return;
+      }
+      
+      // Debug command to check group info and bot permissions
+      if (command === 'group_info') {
+        try {
+          const chat = await bot.getChat(chatId);
+          const botInfo = await bot.getMe();
+          const botMember = await bot.getChatMember(chatId, botInfo.id);
+          
+          let groupMessage = `<b>👥 Group Information</b>\n\n`;
+          groupMessage += `Type: ${chat.type}\n`;
+          groupMessage += `Title: ${escapeHtml(chat.title || 'N/A')}\n`;
+          groupMessage += `Members: ${chat.members_count || 'Unknown'}\n\n`;
+          
+          groupMessage += `<b>🤖 Bot Status</b>\n`;
+          groupMessage += `Status: ${botMember.status}\n`;
+          
+          if (botMember.status === 'administrator') {
+            groupMessage += `Can read all messages: ${botMember.can_read_all_group_messages ? '✅' : '❌'}\n`;
+            groupMessage += `Can delete messages: ${botMember.can_delete_messages ? '✅' : '❌'}\n`;
+          } else if (botMember.status === 'member') {
+            groupMessage += `\n⚠️ Bot is not admin - reactions may not work\n`;
+          }
+          
+          groupMessage += `\n<b>📱 Reaction Support</b>\n`;
+          if (chat.type === 'supergroup') {
+            groupMessage += `✅ Supergroup - reactions supported\n`;
+          } else if (chat.type === 'group') {
+            groupMessage += `⚠️ Regular group - limited reaction support\n`;
+          } else {
+            groupMessage += `❌ Not a group - reactions not supported\n`;
+          }
+          
+          await bot.sendMessage(chatId, groupMessage, { parse_mode: 'HTML' });
+        } catch (error) {
+          await bot.sendMessage(chatId, `❌ Error getting group info: ${error.message}`);
+        }
         return;
       }
     }
