@@ -342,9 +342,11 @@ async function generateWeeklyStats() {
     
     // Get reaction count for this media post
     const reactionCount = await getMessageReactions(media.chatId, media.originalMessageId);
+    console.log(`🔍 [Weekly Stats] Checking reactions for media: chatId=${media.chatId}, messageId=${media.originalMessageId}, reactions=${reactionCount}`);
     
     // Track reactions for "Петушок недели"
     if (reactionCount > 0) {
+      console.log(`✅ [Weekly Stats] Found ${reactionCount} reactions for user ${media.username} (${media.userId})`);
       if (!userReactionStats[userId]) {
         userReactionStats[userId] = {
           userId,
@@ -470,9 +472,11 @@ async function generatePetushokStats() {
     
     // Get reaction count for this media post
     const reactionCount = await getMessageReactions(media.chatId, media.originalMessageId);
+    console.log(`🔍 [Petushok Stats] Checking reactions for media: chatId=${media.chatId}, messageId=${media.originalMessageId}, reactions=${reactionCount}`);
     
     // Track reactions for "Петушок недели"
     if (reactionCount > 0) {
+      console.log(`✅ [Petushok Stats] Found ${reactionCount} reactions for user ${media.username} (${media.userId})`);
       if (!userReactionStats[userId]) {
         userReactionStats[userId] = {
           userId,
