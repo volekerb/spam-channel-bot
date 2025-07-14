@@ -395,13 +395,11 @@ async function generateWeeklyStats() {
   // Media breakdown
   const totalPhotos = weeklyStatsArray.reduce((sum, user) => sum + (user.photoCount || 0), 0);
   const totalVideos = weeklyStatsArray.reduce((sum, user) => sum + (user.videoCount || 0), 0);
-  const totalDocs = weeklyStatsArray.reduce((sum, user) => sum + (user.documentCount || 0), 0);
   const totalTexts = weeklyStatsArray.reduce((sum, user) => sum + (user.textCount || 0), 0);
   
   statsMessage += '\n<b>Media Breakdown:</b>\n';
   statsMessage += `📷 Photos: ${totalPhotos}\n`;
   statsMessage += `🎬 Videos: ${totalVideos}\n`;
-  statsMessage += `📁 Documents: ${totalDocs}\n`;
   statsMessage += `💬 Text Messages: ${totalTexts}\n`;
   
   // Weekly duplicate offenders
