@@ -150,28 +150,15 @@ const hashMedia = (media, mediaType) => {
   });
 };
 
-// Helper function to escape Markdown characters
-function escapeMarkdown(text) {
+// HTML escape function for proper HTML parse mode
+function escapeHtml(text) {
   if (!text) return '';
   return text.toString()
-    .replace(/_/g, '\\_')
-    .replace(/\*/g, '\\*')
-    .replace(/\[/g, '\\[')
-    .replace(/\]/g, '\\]')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)')
-    .replace(/~/g, '\\~')
-    .replace(/`/g, '\\`')
-    .replace(/>/g, '\\>')
-    .replace(/#/g, '\\#')
-    .replace(/\+/g, '\\+')
-    .replace(/=/g, '\\=')
-    .replace(/\|/g, '\\|')
-    .replace(/\{/g, '\\{')
-    .replace(/\}/g, '\\}')
-    .replace(/\./g, '\\.')
-    .replace(/!/g, '\\!')
-    .replace(/-/g, '\\-');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // Format username as a mention if possible
@@ -313,7 +300,7 @@ async function generateWeeklyStats() {
   const now = new Date();
   const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   
-  let statsMessage = '📊 *Weekly Channel Statistics* 📊\n\n';
+  let statsMessage = '📊 <b>Weekly Channel Statistics</b> 📊\n\n';
   
   // Get weekly media posts
   const weeklyMedia = await db.collection('media').find({
@@ -389,11 +376,11 @@ async function generateWeeklyStats() {
   weeklyStatsArray.sort((a, b) => b.totalMessages - a.totalMessages);
   
   // Top contributors
-  statsMessage += '*Top Contributors:*\n';
+  statsMessage += '<b>Top Contributors:</b>\n';
   for (let i = 0; i < Math.min(5, weeklyStatsArray.length); i++) {
     const user = weeklyStatsArray[i];
-    const displayName = user.username && !user.username.includes(' ') ? `@${user.username}` : user.username;
-    statsMessage += `${i+1}. ${escapeMarkdown(displayName)}: ${user.totalMessages} messages\n`;
+    const displayName = user.username && !user.username.includes(' ') ? `@${user.username}` : (user.username || user.userId);
+    statsMessage += `${i+1}. ${escapeHtml(displayName)}: ${user.totalMessages} messages\n`;
   }
   
   // Петушок недели (Top reactor)
@@ -401,8 +388,8 @@ async function generateWeeklyStats() {
   if (reactionStatsArray.length > 0) {
     reactionStatsArray.sort((a, b) => b.totalReactions - a.totalReactions);
     const topReactor = reactionStatsArray[0];
-    const displayName = topReactor.username && !topReactor.username.includes(' ') ? `@${topReactor.username}` : topReactor.username;
-    statsMessage += `\n🐓 *Петушок недели:*\n${escapeMarkdown(displayName)} с ${topReactor.totalReactions} реакциями\n`;
+    const displayName = topReactor.username && !topReactor.username.includes(' ') ? `@${topReactor.username}` : (topReactor.username || topReactor.userId);
+    statsMessage += `\n🐓 <b>Петушок недели:</b>\n${escapeHtml(displayName)} с ${topReactor.totalReactions} реакциями\n`;
   }
   
   // Media breakdown
@@ -411,7 +398,7 @@ async function generateWeeklyStats() {
   const totalDocs = weeklyStatsArray.reduce((sum, user) => sum + (user.documentCount || 0), 0);
   const totalTexts = weeklyStatsArray.reduce((sum, user) => sum + (user.textCount || 0), 0);
   
-  statsMessage += '\n*Media Breakdown:*\n';
+  statsMessage += '\n<b>Media Breakdown:</b>\n';
   statsMessage += `📷 Photos: ${totalPhotos}\n`;
   statsMessage += `🎬 Videos: ${totalVideos}\n`;
   statsMessage += `📁 Documents: ${totalDocs}\n`;
@@ -441,12 +428,12 @@ async function generateWeeklyStats() {
     .filter(user => user.count > 0)
     .sort((a, b) => b.count - a.count);
   
-  statsMessage += '\n*Duplicate Offenders:*\n';
+  statsMessage += '\n<b>Duplicate Offenders:</b>\n';
   if (duplicateOffenders.length > 0) {
     for (let i = 0; i < Math.min(3, duplicateOffenders.length); i++) {
       const user = duplicateOffenders[i];
-      const displayName = user.username && !user.username.includes(' ') ? `@${user.username}` : user.username;
-      statsMessage += `${i+1}. ${escapeMarkdown(displayName)}: ${user.count} duplicates\n`;
+      const displayName = user.username && !user.username.includes(' ') ? `@${user.username}` : (user.username || user.userId);
+      statsMessage += `${i+1}. ${escapeHtml(displayName)}: ${user.count} duplicates\n`;
     }
   } else {
     statsMessage += 'No duplicates posted this week! 🎉\n';
@@ -488,15 +475,15 @@ async function generatePetushokStats() {
     }
   }
   
-  let petushokMessage = '🐓 *Петушок недели* 🐓\n\n';
+  let petushokMessage = '🐓 <b>Петушок недели</b> 🐓\n\n';
   
   // Find top reactor
   const reactionStatsArray = Object.values(userReactionStats);
   if (reactionStatsArray.length > 0) {
     reactionStatsArray.sort((a, b) => b.totalReactions - a.totalReactions);
     const topReactor = reactionStatsArray[0];
-    const displayName = topReactor.username && !topReactor.username.includes(' ') ? `@${topReactor.username}` : topReactor.username;
-    petushokMessage += `${escapeMarkdown(displayName)} с ${topReactor.totalReactions} реакциями за неделю! 🎉`;
+    const displayName = topReactor.username && !topReactor.username.includes(' ') ? `@${topReactor.username}` : (topReactor.username || topReactor.userId);
+    petushokMessage += `${escapeHtml(displayName)} с ${topReactor.totalReactions} реакциями за неделю! 🎉`;
   } else {
     petushokMessage += 'Пока никто не получил реакций на свои посты на этой неделе 😔';
   }
