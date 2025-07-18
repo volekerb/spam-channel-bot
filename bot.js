@@ -788,6 +788,23 @@ async function getMessageReactions(chatId, messageId) {
 async function updateMessageReactions(chatId, messageId, reactions) {
   try {
     const db = client.db(dbName);
+    
+    // Calculate total reactions properly
+    // reactions is an array of reaction objects with counts
+    let totalReactions = 0;
+    if (Array.isArray(reactions)) {
+      totalReactions = reactions.reduce((sum, reaction) => {
+        // Handle both individual reactions and reaction count objects
+        if (reaction.total_count) {
+          return sum + reaction.total_count; // From message_reaction_count
+        } else {
+          return sum + 1; // From message_reaction (individual)
+        }
+      }, 0);
+    }
+    
+    console.log(`📊 Updating reactions for message ${messageId}: ${totalReactions} total reactions`);
+    
     await db.collection('messageReactions').updateOne(
       {
         chatId: chatId.toString(),
@@ -795,7 +812,7 @@ async function updateMessageReactions(chatId, messageId, reactions) {
       },
       {
         $set: {
-          totalReactions: reactions.length,
+          totalReactions,
           reactions: reactions,
           lastUpdated: new Date()
         }
@@ -810,33 +827,42 @@ async function updateMessageReactions(chatId, messageId, reactions) {
 // Handle message reaction updates
 bot.on('message_reaction', async (update) => {
   try {
-    console.log('Reaction update received:', JSON.stringify(update, null, 2));
+    console.log('😍 [message_reaction] Reaction update received:', JSON.stringify(update, null, 2));
     
     const chatId = update.chat.id;
     const messageId = update.message_id;
     const newReaction = update.new_reaction || [];
+    const oldReaction = update.old_reaction || [];
+    
+    console.log(`📝 [message_reaction] Processing: chatId=${chatId}, messageId=${messageId}`);
+    console.log(`📝 [message_reaction] Old reactions: ${oldReaction.length}, New reactions: ${newReaction.length}`);
     
     // Update reaction count in database
     await updateMessageReactions(chatId, messageId, newReaction);
     
-    console.log(`Updated reactions for message ${messageId} in chat ${chatId}: ${newReaction.length} reactions`);
+    console.log(`✅ [message_reaction] Updated reactions for message ${messageId} in chat ${chatId}`);
     
   } catch (error) {
-    console.error('Error processing reaction update:', error);
+    console.error('❌ [message_reaction] Error processing reaction update:', error);
   }
 });
 
 // Handle message reaction count updates (alternative event)
 bot.on('message_reaction_count', async (update) => {
   try {
-    console.log('Reaction count update received:', JSON.stringify(update, null, 2));
+    console.log('📊 [message_reaction_count] Reaction count update received:', JSON.stringify(update, null, 2));
     
     const chatId = update.chat.id;
     const messageId = update.message_id;
     const reactions = update.reactions || [];
     
+    console.log(`📝 [message_reaction_count] Processing: chatId=${chatId}, messageId=${messageId}`);
+    console.log(`📝 [message_reaction_count] Reactions array:`, reactions);
+    
     // Calculate total reaction count
     const totalReactions = reactions.reduce((sum, reaction) => sum + reaction.total_count, 0);
+    
+    console.log(`📊 [message_reaction_count] Calculated total: ${totalReactions}`);
     
     // Update in database
     const db = client.db(dbName);
@@ -855,10 +881,10 @@ bot.on('message_reaction_count', async (update) => {
       { upsert: true }
     );
     
-    console.log(`Updated reaction count for message ${messageId}: ${totalReactions} total reactions`);
+    console.log(`✅ [message_reaction_count] Updated reaction count for message ${messageId}: ${totalReactions} total reactions`);
     
   } catch (error) {
-    console.error('Error processing reaction count update:', error);
+    console.error('❌ [message_reaction_count] Error processing reaction count update:', error);
   }
 });
 
