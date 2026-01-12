@@ -678,8 +678,8 @@ bot.on('message', async (msg) => {
         chatId
       });
       
-      // Check if message ends with " нет" and respond
-      if (msg.text.toLowerCase().endsWith(' нет')) {
+      // Check if message ends with "нет" (with optional punctuation) and respond
+      if (/(?:^|\s)нет[?!.,]*$/i.test(msg.text)) {
         await bot.sendMessage(chatId, 'Пидора ответ', { reply_to_message_id: msg.message_id });
       }
     }
