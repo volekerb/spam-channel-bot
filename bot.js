@@ -320,7 +320,6 @@ async function generateWeeklyStats() {
   
   // Get weekly user statistics
   const userWeeklyStats = {};
-  const userReactionStats = {};
   
   for (const media of weeklyMedia) {
     const userId = media.userId;
@@ -339,23 +338,6 @@ async function generateWeeklyStats() {
     
     userWeeklyStats[userId][`${media.mediaType}Count`]++;
     userWeeklyStats[userId].totalMessages++;
-    
-    // Get reaction count for this media post
-    const reactionCount = await getMessageReactions(media.chatId, media.originalMessageId);
-    console.log(`🔍 [Weekly Stats] Checking reactions for media: chatId=${media.chatId}, messageId=${media.originalMessageId}, reactions=${reactionCount}`);
-    
-    // Track reactions for "Петушок недели"
-    if (reactionCount > 0) {
-      console.log(`✅ [Weekly Stats] Found ${reactionCount} reactions for user ${media.username} (${media.userId})`);
-      if (!userReactionStats[userId]) {
-        userReactionStats[userId] = {
-          userId,
-          username,
-          totalReactions: 0
-        };
-      }
-      userReactionStats[userId].totalReactions += reactionCount;
-    }
   }
   
   // Get weekly text messages (non-media)
@@ -394,15 +376,6 @@ async function generateWeeklyStats() {
     const user = weeklyStatsArray[i];
     const displayName = user.username && !user.username.includes(' ') ? `@${user.username}` : (user.username || user.userId);
     statsMessage += `${i+1}. ${escapeHtml(displayName)}: ${user.totalMessages} messages\n`;
-  }
-  
-  // Петушок недели (Top reactor)
-  const reactionStatsArray = Object.values(userReactionStats);
-  if (reactionStatsArray.length > 0) {
-    reactionStatsArray.sort((a, b) => b.totalReactions - a.totalReactions);
-    const topReactor = reactionStatsArray[0];
-    const displayName = topReactor.username && !topReactor.username.includes(' ') ? `@${topReactor.username}` : (topReactor.username || topReactor.userId);
-    statsMessage += `\n🐓 <b>Петушок недели:</b>\n${escapeHtml(displayName)} с ${topReactor.totalReactions} реакциями\n`;
   }
   
   // Media breakdown
@@ -453,56 +426,6 @@ async function generateWeeklyStats() {
   return statsMessage;
 }
 
-// Generate Петушок недели stats only
-async function generatePetushokStats() {
-  const db = client.db(dbName);
-  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  
-  // Get weekly media posts
-  const weeklyMedia = await db.collection('media').find({
-    timestamp: { $gte: oneWeekAgo }
-  }).toArray();
-  
-  const userReactionStats = {};
-  
-  // Calculate reaction stats for each user
-  for (const media of weeklyMedia) {
-    const userId = media.userId;
-    const username = media.username || userId;
-    
-    // Get reaction count for this media post
-    const reactionCount = await getMessageReactions(media.chatId, media.originalMessageId);
-    console.log(`🔍 [Petushok Stats] Checking reactions for media: chatId=${media.chatId}, messageId=${media.originalMessageId}, reactions=${reactionCount}`);
-    
-    // Track reactions for "Петушок недели"
-    if (reactionCount > 0) {
-      console.log(`✅ [Petushok Stats] Found ${reactionCount} reactions for user ${media.username} (${media.userId})`);
-      if (!userReactionStats[userId]) {
-        userReactionStats[userId] = {
-          userId,
-          username,
-          totalReactions: 0
-        };
-      }
-      userReactionStats[userId].totalReactions += reactionCount;
-    }
-  }
-  
-  let petushokMessage = '🐓 <b>Петушок недели</b> 🐓\n\n';
-  
-  // Find top reactor
-  const reactionStatsArray = Object.values(userReactionStats);
-  if (reactionStatsArray.length > 0) {
-    reactionStatsArray.sort((a, b) => b.totalReactions - a.totalReactions);
-    const topReactor = reactionStatsArray[0];
-    const displayName = topReactor.username && !topReactor.username.includes(' ') ? `@${topReactor.username}` : (topReactor.username || topReactor.userId);
-    petushokMessage += `${escapeHtml(displayName)} с ${topReactor.totalReactions} реакциями за неделю! 🎉`;
-  } else {
-    petushokMessage += 'Пока никто не получил реакций на свои посты на этой неделе 😔';
-  }
-  
-  return petushokMessage;
-}
 
 // Check if the chat is a group or supergroup
 async function isGroup(chatId) {
@@ -561,20 +484,12 @@ bot.on('message', async (msg) => {
         return;
       }
       
-      // Handle petushok command - allow anyone to use it
-      if (command === 'petushok') {
-        const petushokMessage = await generatePetushokStats();
-        await bot.sendMessage(chatId, petushokMessage, { parse_mode: 'HTML' });
-        return;
-      }
-      
       // Handle help command
       if (command === 'help') {
         const helpMessage = `*Duplicate Detector Bot*\n\n`+
                           `This bot detects duplicate media in the group and tracks user statistics.\n\n`+
                           `*Commands:*\n`+
                           `/stats - Get group statistics\n`+
-                          `/petushok - Get Петушок недели (top reactor)\n`+
                           `/debug_reactions - Check reaction tracking status\n`+
                           `/webhook_info - Check webhook configuration\n`+
                           `/group_info - Check group type and bot permissions\n`+
@@ -762,6 +677,11 @@ bot.on('message', async (msg) => {
         timestamp: new Date(),
         chatId
       });
+      
+      // Check if message ends with " нет" and respond
+      if (msg.text.toLowerCase().endsWith(' нет')) {
+        await bot.sendMessage(chatId, 'Пидора ответ', { reply_to_message_id: msg.message_id });
+      }
     }
   } catch (error) {
     console.error('Error processing message:', error);
