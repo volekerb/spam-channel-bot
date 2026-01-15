@@ -687,6 +687,11 @@ bot.on('message', async (msg) => {
       if (/(?:^|\s)да[?!.,]*$/i.test(msg.text)) {
         await bot.sendMessage(chatId, 'Пизда', { reply_to_message_id: msg.message_id });
       }
+      
+      // Check if message contains "300" and respond
+      if (msg.text.includes('300')) {
+        await bot.sendMessage(chatId, 'Отсоси у тракториста', { reply_to_message_id: msg.message_id });
+      }
     }
   } catch (error) {
     console.error('Error processing message:', error);
