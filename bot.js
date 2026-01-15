@@ -682,6 +682,11 @@ bot.on('message', async (msg) => {
       if (/(?:^|\s)нет[?!.,]*$/i.test(msg.text)) {
         await bot.sendMessage(chatId, 'Пидора ответ', { reply_to_message_id: msg.message_id });
       }
+      
+      // Check if message ends with "да" (with optional punctuation) and respond
+      if (/(?:^|\s)да[?!.,]*$/i.test(msg.text)) {
+        await bot.sendMessage(chatId, 'Пизда', { reply_to_message_id: msg.message_id });
+      }
     }
   } catch (error) {
     console.error('Error processing message:', error);
