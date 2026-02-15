@@ -683,6 +683,11 @@ bot.on('message', async (msg) => {
         await bot.sendMessage(chatId, 'Пидора ответ', { reply_to_message_id: msg.message_id });
       }
       
+      // Check if message contains "сука" and respond
+      if (/сука/i.test(msg.text)) {
+        await bot.sendMessage(chatId, 'Внимание, обнаружена сучара', { reply_to_message_id: msg.message_id });
+      }
+      
       // Check if message ends with "да" (with optional punctuation) and respond
       if (/(?:^|\s)да[?!.,]*$/i.test(msg.text)) {
         await bot.sendMessage(chatId, 'Пизда', { reply_to_message_id: msg.message_id });
