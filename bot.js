@@ -679,7 +679,8 @@ bot.on('message', async (msg) => {
       });
       
       // Check if message ends with "нет" (with optional punctuation) and respond
-      if (/(?:^|\s)нет[?!.,]*$/i.test(msg.text)) {
+      // Handles homoglyphs: е(Cyrillic) = e(Latin), н can be written as h visually
+      if (/(?:^|\s)[нn][еeё][тt][?!.,]*$/i.test(msg.text)) {
         await bot.sendMessage(chatId, 'Пидора ответ', { reply_to_message_id: msg.message_id });
       }
       
