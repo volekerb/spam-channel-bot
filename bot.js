@@ -698,6 +698,16 @@ bot.on('message', async (msg) => {
       if (msg.text.includes('300')) {
         await bot.sendMessage(chatId, 'Отсоси у тракториста', { reply_to_message_id: msg.message_id });
       }
+
+      // Check if message contains "точно" (with homoglyph variants) and respond
+      if (/[тt][оo]ч[нnh][оo]/i.test(msg.text)) {
+        await bot.sendMessage(chatId, 'соси сочно', { reply_to_message_id: msg.message_id });
+      }
+
+      // 1% chance to reply to @brekelov
+      if (msg.from.username === 'brekelov' && Math.random() < 0.01) {
+        await bot.sendMessage(chatId, 'люблю тебя, папочка', { reply_to_message_id: msg.message_id });
+      }
     }
   } catch (error) {
     console.error('Error processing message:', error);
