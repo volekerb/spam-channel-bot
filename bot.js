@@ -48,6 +48,9 @@ if (useWebhook && webhookUrl) {
 const client = new MongoClient(mongoUri);
 const dbName = 'duplicate_detector';
 
+// Track consecutive text messages per chat (no media)
+const consecutiveTextMessages = {};
+
 // Express app for webhook
 const app = express();
 const port = process.env.PORT || 3000;
@@ -664,6 +667,9 @@ bot.on('message', async (msg) => {
           // Update user statistics
           await updateUserStatistics(userId, username, mediaType);
         }
+        
+        // Reset consecutive text message counter when media is posted
+        consecutiveTextMessages[chatId] = 0;
       }
     } else if (msg.text && !msg.text.startsWith('/')) {
       // Handle regular text messages (not commands)
@@ -677,6 +683,17 @@ bot.on('message', async (msg) => {
         timestamp: new Date(),
         chatId
       });
+      
+      // Increment consecutive text message counter
+      if (!consecutiveTextMessages[chatId]) {
+        consecutiveTextMessages[chatId] = 0;
+      }
+      consecutiveTextMessages[chatId]++;
+      
+      // Remind users to post memes if 50+ consecutive text messages
+      if (consecutiveTextMessages[chatId] === 50) {
+        await bot.sendMessage(chatId, 'Что-то вы раскудахтались, где мемасы, петушки?');
+      }
       
       // Check if message ends with "нет" (with optional punctuation) and respond
       // Handles homoglyphs: е(Cyrillic) = e(Latin), н can be written as h visually
