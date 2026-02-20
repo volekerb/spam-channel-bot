@@ -693,6 +693,7 @@ bot.on('message', async (msg) => {
       // Remind users to post memes if 50+ consecutive text messages
       if (consecutiveTextMessages[chatId] === 50) {
         await bot.sendMessage(chatId, 'Что-то вы раскудахтались, где мемасы, петушки?');
+        consecutiveTextMessages[chatId] = 0; // Reset counter after reminder
       }
       
       // Check if message ends with "нет" (with optional punctuation) and respond
