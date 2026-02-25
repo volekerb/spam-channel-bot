@@ -717,8 +717,8 @@ bot.on('message', async (msg) => {
         await bot.sendMessage(chatId, 'Отсоси у тракториста', { reply_to_message_id: msg.message_id });
       }
 
-      // Check if message contains "точно" (with homoglyph variants) and respond
-      if (/[тt][оo]ч[нnh][оo]/i.test(msg.text)) {
+      // Check if message contains "точно" (with homoglyph variants) as a complete word and respond
+      if (/(?:^|\s)[тt][оo]ч[нnh][оo](?:\s|[?!.,]|$)/i.test(msg.text)) {
         await bot.sendMessage(chatId, 'соси сочно', { reply_to_message_id: msg.message_id });
       }
 
