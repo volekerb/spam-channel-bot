@@ -726,8 +726,8 @@ bot.on('message', async (msg) => {
         await bot.sendMessage(chatId, 'Пизда', { reply_to_message_id: msg.message_id });
       }
       
-      // Check if message contains "300" and respond
-      if (msg.text.includes('300')) {
+      // Check if message contains "300" as a complete number (not part of a longer number) and respond
+      if (/(?<!\d)300(?!\d)/.test(msg.text)) {
         await bot.sendMessage(chatId, 'Отсоси у тракториста', { reply_to_message_id: msg.message_id });
       }
 
