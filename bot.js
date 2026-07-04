@@ -466,6 +466,45 @@ async function isAdmin(chatId, userId) {
   }
 }
 
+// List of common rude Russian words/phrases
+const RUDE_WORDS = [
+  'нахер', 'нахуй', 'пнх', 'жопу', 'жопа', 'сука', 'бля', 'блядь',
+  'ебать', 'ебу', 'еби', 'хуй', 'хуя', 'хую', 'пиздец', 'пизда',
+  'хуево', 'хренова', 'говно', 'мразь'
+];
+
+// The infamous quote response split into sentences
+const RUDE_RESPONSE_SENTENCES = [
+  'Ублюдок, мать твою, а ну, иди сюда, говно собачье, а?',
+  'Что, сдуру решил ко мне лезть?',
+  'Ты, засранец вонючий, мать твою, а?',
+  'Ну, иди сюда, попробуй меня трахнуть – я тебя сам трахну, ублюдок, онанист чертов, будь ты проклят!',
+  'Иди, идиот, трахать тебя и всю твою семью!',
+  'Говно собачье, жлоб вонючий, дерьмо, сука, падла!',
+  'Иди сюда, мерзавец, негодяй, гад!',
+  'Иди сюда, ты, говно, жопа!'
+];
+
+// Check if text contains rude words
+function containsRudeWords(text) {
+  if (!text) return false;
+  const lowerText = text.toLowerCase();
+  return RUDE_WORDS.some(word => lowerText.includes(word));
+}
+
+// Send rude response with delays between sentences
+async function sendRudeResponse(chatId, replyToMessageId) {
+  for (let i = 0; i < RUDE_RESPONSE_SENTENCES.length; i++) {
+    await bot.sendMessage(chatId, RUDE_RESPONSE_SENTENCES[i], {
+      reply_to_message_id: replyToMessageId
+    });
+    // Add 1 second delay between sentences (except after the last one)
+    if (i < RUDE_RESPONSE_SENTENCES.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+}
+
 // Start listening for messages
 bot.on('message', async (msg) => {
   try {
@@ -473,7 +512,7 @@ bot.on('message', async (msg) => {
     const userId = msg.from.id;
     const username = msg.from.username || `${msg.from.first_name} ${msg.from.last_name || ''}`.trim();
     const db = client.db(dbName);
-    
+
     // Only process messages from groups
     const isValidGroup = await isGroup(chatId);
     if (!isValidGroup) {
@@ -484,10 +523,24 @@ bot.on('message', async (msg) => {
         return; // Not a command in a private chat, ignore
       }
     }
-    
+
     // If a specific group ID is set, use it for logging but don't restrict functionality
     if (groupId) {
       console.log(`Processing message in chat ${chatId}, configured group is ${groupId}`);
+    }
+
+    // Check if this message is a reply to one of the bot's messages
+    if (msg.reply_to_message) {
+      const repliedToMsg = msg.reply_to_message;
+      const botInfo = await bot.getMe();
+
+      if (repliedToMsg.from && repliedToMsg.from.id === botInfo.id) {
+        // This is a reply to the bot's message
+        if (msg.text && containsRudeWords(msg.text)) {
+          await sendRudeResponse(chatId, msg.message_id);
+          return;
+        }
+      }
     }
     
     // Check for commands
