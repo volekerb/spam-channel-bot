@@ -492,17 +492,12 @@ function containsRudeWords(text) {
   return RUDE_WORDS.some(word => lowerText.includes(word));
 }
 
-// Send rude response with delays between sentences
+// Send rude response with random sentence
 async function sendRudeResponse(chatId, replyToMessageId) {
-  for (let i = 0; i < RUDE_RESPONSE_SENTENCES.length; i++) {
-    await bot.sendMessage(chatId, RUDE_RESPONSE_SENTENCES[i], {
-      reply_to_message_id: replyToMessageId
-    });
-    // Add 1 second delay between sentences (except after the last one)
-    if (i < RUDE_RESPONSE_SENTENCES.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  }
+  const randomIndex = Math.floor(Math.random() * RUDE_RESPONSE_SENTENCES.length);
+  await bot.sendMessage(chatId, RUDE_RESPONSE_SENTENCES[randomIndex], {
+    reply_to_message_id: replyToMessageId
+  });
 }
 
 // Start listening for messages
